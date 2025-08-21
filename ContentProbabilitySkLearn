@@ -1,0 +1,98 @@
+import nltk
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+from nltk.tokenize import sent_tokenize
+import re
+
+class ContentScorer:
+    """
+    A class to score the usefulness of content based on relevance and readability.
+    """
+    def __init__(self, documents):
+        self.documents = documents
+        self.vectorizer = TfidfVectorizer(stop_words='english')
+        self.tfidf_matrix = self.vectorizer.fit_transform(documents)
+
+    def _calculate_relevance(self, query):
+        """
+        Calculates content relevance to a query using TF-IDF and Cosine Similarity.
+        """
+        query_vector = self.vectorizer.transform([query])
+        cosine_similarities = cosine_similarity(query_vector, self.tfidf_matrix).flatten()
+        return cosine_similarities
+
+    def _calculate_readability(self, text):
+        """
+        Calculates a simple readability score (higher is better).
+        This is a heuristic based on sentence and word length.
+        """
+        words = re.findall(r'\b\w+\b', text.lower())
+        sentences = sent_tokenize(text)
+        
+        if not words or not sentences:
+            return 0.0
+
+        avg_word_length = sum(len(word) for word in words) / len(words)
+        avg_sentence_length = len(words) / len(sentences)
+        
+        # A simple, inverse-proportional score. Adjust weights as needed.
+        # Higher avg_sentence_length can negatively impact readability, so we
+        # use an inverse relationship.
+        readability_score = (avg_word_length / 5) + (50 / avg_sentence_length)
+        return readability_score
+
+    def score_content(self, query, relevance_weight=0.7, readability_weight=0.3):
+        """
+        Scores each document based on a weighted combination of relevance and readability.
+        
+        Args:
+            query (str): The user's search query or topic of interest.
+            relevance_weight (float): The importance of relevance in the final score.
+            readability_weight (float): The importance of readability in the final score.
+        
+        Returns:
+            list of dict: A list of dictionaries with scores and content.
+        """
+        relevance_scores = self._calculate_relevance(query)
+        scored_content = []
+
+        for i, doc in enumerate(self.documents):
+            readability_score = self._calculate_readability(doc)
+            final_score = (relevance_scores[i] * relevance_weight) + (readability_score * readability_weight)
+            scored_content.append({
+                'content': doc,
+                'relevance_score': relevance_scores[i],
+                'readability_score': readability_score,
+                'final_score': final_score
+            })
+        
+        # Sort content by final score in descending order
+        scored_content.sort(key=lambda x: x['final_score'], reverse=True)
+        return scored_content
+
+# --- Example Usage ---
+if __name__ == "__main__":
+    # Sample content (e.g., from a database, web scraper, etc.)
+    documents = [
+        "Python is a high-level, interpreted programming language. It is great for beginners and data science.",
+        "A useful guide to mastering Python for data science. It covers machine learning and statistical analysis. Python is versatile.",
+        "The history of the C programming language and its influence on modern software engineering. It is compiled and very fast.",
+        "Learn Python basics. This article shows you how to write your first program and introduces you to variables and functions."
+    ]
+
+    # Initialize the scorer with your content
+    scorer = ContentScorer(documents)
+
+    # Define a query
+    user_query = "Python for data science"
+
+    # Get the scored and ranked content
+    ranked_content = scorer.score_content(user_query)
+
+    # Print the results
+    print(f"Ranking content for the query: '{user_query}'\n")
+    for item in ranked_content:
+        print(f"--- Final Score: {item['final_score']:.4f} ---")
+        print(f"Content: {item['content']}")
+        print(f"Relevance Score: {item['relevance_score']:.4f}")
+        print(f"Readability Score: {item['readability_score']:.4f}\n")
